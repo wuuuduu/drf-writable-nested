@@ -635,8 +635,11 @@ class WritableNestedModelSerializerTest(TestCase):
         serializer = serializers.TeamSerializer(data=data)
         self.assertTrue(serializer.is_valid())
         team = serializer.save()
+
+        # The serializer will not modify existing objects unless they
+        # are already related
         self.assertEqual(3, team.members.count())
-        self.assertEqual(3, models.User.objects.count())
+        self.assertEqual(5, models.User.objects.count())
         self.assertEqual('first user', team.members.first().username)
 
         # Update
@@ -646,23 +649,29 @@ class WritableNestedModelSerializerTest(TestCase):
         self.assertTrue(serializer.is_valid())
         team = serializer.save()
         self.assertEqual(4, team.members.count())
-        self.assertEqual(4, models.User.objects.count())
+        self.assertEqual(6, models.User.objects.count())
         self.assertEqual('fourth user', team.members.last().username)
 
     def test_create_fk_with_existing_related_object(self):
         user = models.User.objects.create(username='user one')
         profile = models.Profile.objects.create(user=user)
-        avatar = models.Avatar.objects.create(profile=profile)
+        avatar = models.Avatar.objects.create(
+            profile=profile,
+            image='image-0.png',
+        )
         data = self.get_initial_data()
         data['profile']['avatars'][0]['pk'] = avatar.pk
         serializer = serializers.UserSerializer(data=data)
         self.assertTrue(serializer.is_valid())
         new_user = serializer.save()
-        self.assertEqual(2, models.Avatar.objects.count())
+
+        # The serializer will not modify existing objects unless they
+        # are already related
+        self.assertEqual(3, models.Avatar.objects.count())
         avatar.refresh_from_db()
-        self.assertEqual('image-1.png', avatar.image)
+        self.assertEqual('image-0.png', avatar.image)
         self.assertNotEqual(new_user.profile, profile)
-        self.assertEqual(new_user.profile, avatar.profile)
+        self.assertNotEqual(new_user.profile, avatar.profile)
 
     def test_create_with_existing_direct_fk_object(self):
         access_key = models.AccessKey.objects.create(
@@ -680,8 +689,11 @@ class WritableNestedModelSerializerTest(TestCase):
         self.assertTrue(serializer.is_valid())
         user = serializer.save()
         access_key.refresh_from_db()
-        self.assertEqual(access_key, user.profile.access_key)
-        self.assertEqual('new-key', access_key.key)
+
+        # The serializer will not modify existing objects unless they
+        # are already related
+        self.assertNotEqual(access_key, user.profile.access_key)
+        self.assertEqual('the-key', access_key.key)
 
     def test_create_with_save_kwargs(self):
         data = self.get_initial_data()
@@ -895,6 +907,22 @@ class WritableNestedModelSerializerTest(TestCase):
         self.assertTrue(models.Document.objects.filter(pk=doc.pk).exists())
         self.assertEqual(doc.page.title, 'some page')
 
+    def test_cannot_hijack_unrelated_objects(self):
+        user = models.User.objects.create()
+        profile = models.Profile.objects.create(user=user)
+        data = self.get_initial_data()
+        existing_profile_pk = profile.pk
+
+        # Attempt to steal another user's profile
+        data['profile']['pk'] = existing_profile_pk
+        serializer = serializers.UserSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        new_user = serializer.save()
+
+        self.assertNotEqual(existing_profile_pk, data['profile']['pk'])
+        profile.refresh_from_db()
+        self.assertNotEqual(profile.user, new_user)
+
 
 class WritableNestedModelSerializerIssuesTest(TestCase):
     def test_issue_86(self):
@@ -907,11 +935,11 @@ class WritableNestedModelSerializerIssuesTest(TestCase):
         })
         self.assertTrue(serializer.is_valid())
         instance = serializer.save()
-        
+
         update_serializer = serializers.I86GenreSerializer(
-            instance=instance, 
+            instance=instance,
             data={
-                'id': instance.pk, 
+                'id': instance.pk,
                 'names': [
                     {
                         'id': instance.names.first().pk,
@@ -924,6 +952,5 @@ class WritableNestedModelSerializerIssuesTest(TestCase):
         update_serializer.save()
         self.assertEqual(serializer.data['id'], update_serializer.data['id'])
         self.assertEqual(
-            serializer.data['names'][0]['id'], 
+            serializer.data['names'][0]['id'],
             update_serializer.data['names'][0]['id'])
-

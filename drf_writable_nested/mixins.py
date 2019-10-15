@@ -51,7 +51,8 @@ class BaseNestedModelSerializer(serializers.ModelSerializer):
                 # Reversed one-to-one looks like direct foreign keys but they
                 # are reverse relations
                 if direct:
-                    relations[field_name] = (field, field.source)
+                    relations[field_name] = (
+                        related_field, field, field.source)
                 else:
                     reverse_relations[field_name] = (
                         related_field, field, field.source)
@@ -111,26 +112,19 @@ class BaseNestedModelSerializer(serializers.ModelSerializer):
 
     def _extract_related_pks(self, field, related_data):
         model_class = field.Meta.model
-        pk_list = []
-        for d in filter(None, related_data):
-            pk = self._get_related_pk(d, model_class)
-            if pk:
-                pk_list.append(pk)
+        return {self._get_related_pk(d, model_class) for d in related_data if d}
 
-        return pk_list
+    def _prefetch_related_instances(self, instance, field_source, one_to_one):
+        if one_to_one:
+            related_instances = [getattr(instance, field_source, None)]
+        else:
+            related_instances = getattr(instance, field_source, None).all()
 
-    def _prefetch_related_instances(self, field, related_data):
-        model_class = field.Meta.model
-        pk_list = self._extract_related_pks(field, related_data)
-
-        instances = {
+        return {
             str(related_instance.pk): related_instance
-            for related_instance in model_class.objects.filter(
-                pk__in=pk_list
-            )
+            for related_instance in related_instances
+            if related_instance
         }
-
-        return instances
 
     def update_or_create_reverse_relations(self, instance, reverse_relations):
         # Update or create reverse relations:
@@ -159,7 +153,11 @@ class BaseNestedModelSerializer(serializers.ModelSerializer):
                 # Expand to array of one item for one-to-one for uniformity
                 related_data = [related_data]
 
-            instances = self._prefetch_related_instances(field, related_data)
+            instances = self._prefetch_related_instances(
+                instance,
+                field_source,
+                related_field.one_to_one,
+            )
 
             save_kwargs = self._get_save_kwargs(field_name)
             if isinstance(related_field, GenericRelation):
@@ -200,19 +198,25 @@ class BaseNestedModelSerializer(serializers.ModelSerializer):
                 m2m_manager = getattr(instance, field_source)
                 m2m_manager.add(*new_related_instances)
 
-    def update_or_create_direct_relations(self, attrs, relations):
-        for field_name, (field, field_source) in relations.items():
-            obj = None
+    def update_or_create_direct_relations(self, attrs, relations, instance=None):
+        for field_name, (related_field, field, field_source) in \
+                relations.items():
             data = self.get_initial()[field_name]
             model_class = field.Meta.model
-            pk = self._get_related_pk(data, model_class)
-            if pk:
-                obj = model_class.objects.filter(
-                    pk=pk,
-                ).first()
+            related_instance = None
+            if instance:
+                related_instance = getattr(instance, field_source, None)
+
+            # For many-to-one fields we only modify the instance if the
+            # supplied pk matches, otherwise we create a new one.
+            data_pk = self._get_related_pk(data, model_class)
+            related_pk = str(getattr(related_instance, 'pk', None))
+            if related_field.many_to_one and data_pk != related_pk:
+                related_instance = None
+
             serializer = self._get_serializer_for_field(
                 field,
-                instance=obj,
+                instance=related_instance,
                 data=data,
             )
 
@@ -277,6 +281,7 @@ class NestedUpdateMixin(BaseNestedModelSerializer):
         self.update_or_create_direct_relations(
             validated_data,
             relations,
+            instance,
         )
 
         # Update instance
@@ -293,49 +298,29 @@ class NestedUpdateMixin(BaseNestedModelSerializer):
         reverse_relations = OrderedDict(
             reversed(list(reverse_relations.items())))
 
-        # Delete instances which is missed in data
+        # Delete instances which are missing from data
         for field_name, (related_field, field, field_source) in \
                 reverse_relations.items():
-            model_class = field.Meta.model
 
             related_data = self.get_initial()[field_name]
-            # Expand to array of one item for one-to-one for uniformity
-            if related_field.one_to_one:
-                related_data = [related_data]
-
-            # M2M relation can be as direct or as reverse. For direct relation
-            # we should use reverse relation name
-            if related_field.many_to_many and \
-                    not isinstance(related_field, ForeignObjectRel):
-                related_field_lookup = {
-                    related_field.remote_field.name: instance,
-                }
-            elif isinstance(related_field, GenericRelation):
-                related_field_lookup = \
-                    self._get_generic_lookup(instance, related_field)
-            else:
-                related_field_lookup = {
-                    related_field.name: instance,
-                }
-
-            current_ids = self._extract_related_pks(field, related_data)
+            related_value = getattr(instance, field_source, None)
 
             try:
-                pks_to_delete = list(
-                    model_class.objects.filter(
-                        **related_field_lookup
-                    ).exclude(
-                        pk__in=current_ids
-                    ).values_list('pk', flat=True)
-                )
-
-                if related_field.many_to_many:
-                    # Remove relations from m2m table
-                    m2m_manager = getattr(instance, field_source)
-                    m2m_manager.remove(*pks_to_delete)
+                if related_field.one_to_one:
+                    if related_data is None and related_value is not None:
+                        related_value.delete()
                 else:
-                    model_class.objects.filter(pk__in=pks_to_delete).delete()
-
+                    related_pks = self._extract_related_pks(
+                        field,
+                        related_data,
+                    )
+                    existing_pks = {str(obj.pk) for obj in related_value.all()}
+                    if existing_pks - related_pks:
+                        query_set = related_value.exclude(pk__in=related_pks)
+                        if related_field.many_to_many:
+                            related_value.remove(*list(query_set))
+                        else:
+                            query_set.delete()
             except ProtectedError as e:
                 instances = e.args[1]
                 self.fail('cannot_delete_protected', instances=", ".join([
