@@ -194,9 +194,10 @@ class BaseNestedModelSerializer(serializers.ModelSerializer):
                     raise ValidationError({field_name: errors})
 
             if related_field.many_to_many:
-                # Add m2m instances to through model via add
+                # Set m2m instances to through model via add
+                # Changed from add to set to keep order if django-sortedm2m is used
                 m2m_manager = getattr(instance, field_source)
-                m2m_manager.add(*new_related_instances)
+                m2m_manager.set(new_related_instances)
 
     def update_or_create_direct_relations(self, attrs, relations, instance=None):
         for field_name, (related_field, field, field_source) in \
