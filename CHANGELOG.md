@@ -1,3 +1,7 @@
+## 0.6.1
+* Fix related object stealing (@Ian-MacLeod)
+* Save related objects by save instead of add 
+
 ## 0.6.0
 * Drop end-of-life Django versions, add Django 2.2 and 3.0, and Python 3.8 (@johnthagen)
 
