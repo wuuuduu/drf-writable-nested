@@ -994,6 +994,7 @@ class WritableNestedModelSerializerAPITest(APITestCase):
         }
 
         update_serializer = serializers.UserSerializer(
+            instance=user,
             data=user_data,
             partial=True
         )
