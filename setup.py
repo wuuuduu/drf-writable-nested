@@ -34,6 +34,10 @@ setup(
     author='beda.software',
     author_email='drfwritablenested@beda.software',
     packages=['drf_writable_nested'],
+    package_data = {
+        'drf_writable_nested': ['py.typed'],
+    },
+    include_package_data=True,
     zip_safe=False,
     python_requires='>=3.5',
     classifiers=[
@@ -42,6 +46,7 @@ setup(
         'Framework :: Django',
         'Framework :: Django :: 2.2',
         'Framework :: Django :: 3.0',
+        'Framework :: Django :: 3.1',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: BSD License',
         'Operating System :: OS Independent',

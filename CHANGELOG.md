@@ -1,6 +1,14 @@
-## 0.6.1
+## 0.6.3
 * Fix related object stealing (@Ian-MacLeod)
 * Save related objects by save instead of add 
+
+## 0.6.2
+* Fix: Refresh from DB when updating nested object #122 (@pcarn)
+* Fix: UniqueFieldsMixin validation optional for partial update #117 (@robinchow)
+* Add Django 3.1 to CI tests (@johnthagen)
+
+## 0.6.1
+* Add support for Django 3.1 #115 (@LeeHanYeong)
 
 ## 0.6.0
 * Drop end-of-life Django versions, add Django 2.2 and 3.0, and Python 3.8 (@johnthagen)

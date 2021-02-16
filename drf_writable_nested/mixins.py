@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 from collections import OrderedDict, defaultdict
+from typing import List
 
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import ProtectedError, FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist
+from django.db.models import ProtectedError
 from django.db.models.fields.related import ForeignObjectRel
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
@@ -292,6 +294,7 @@ class NestedUpdateMixin(BaseNestedModelSerializer):
         )
         self.update_or_create_reverse_relations(instance, reverse_relations)
         self.delete_reverse_relations_if_need(instance, reverse_relations)
+        instance.refresh_from_db()
         return instance
 
     def delete_reverse_relations_if_need(self, instance, reverse_relations):
@@ -366,7 +369,7 @@ class UniqueFieldsMixin(serializers.ModelSerializer):
     (`UniqueFieldsMixin` and `NestedCreateMixin` or `NestedUpdateMixin`)
     you should put `UniqueFieldsMixin` ahead.
     """
-    _unique_fields = []
+    _unique_fields = [] # type: List[str]
 
     def get_fields(self):
         self._unique_fields = []
@@ -385,6 +388,8 @@ class UniqueFieldsMixin(serializers.ModelSerializer):
 
     def _validate_unique_fields(self, validated_data):
         for field_name in self._unique_fields:
+            if self.partial and field_name not in validated_data:
+                continue
             unique_validator = UniqueValidator(self.Meta.model.objects.all())
             try:
                 # `set_context` removed on DRF >= 3.11, pass in via __call__ instead
