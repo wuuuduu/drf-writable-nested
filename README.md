@@ -18,7 +18,7 @@ Requirements
 ============
 
 - Python (3.5, 3.6, 3.7, 3.8)
-- Django (2.2, 3.0)
+- Django (2.2, 3.0, 3.1)
 - djangorestframework (3.8+)
 
 Installation
@@ -50,13 +50,13 @@ class AccessKey(models.Model):
 
 class Profile(models.Model):
     sites = models.ManyToManyField(Site)
-    user = models.OneToOneField(User)
-    access_key = models.ForeignKey(AccessKey, null=True)
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    access_key = models.ForeignKey(AccessKey, null=True, on_delete=models.CASCADE)
 
 
 class Avatar(models.Model):
     image = models.CharField(max_length=100)
-    profile = models.ForeignKey(Profile, related_name='avatars')
+    profile = models.ForeignKey(Profile, related_name='avatars', on_delete=models.CASCADE)
 ```
 
 We should create the following list of serializers:
@@ -211,6 +211,23 @@ print(user.profile.access_key.key)
 Note: The same value will be used for all nested instances like default value but with higher priority.
 
 
+Testing
+=======
+To run unit tests, run:
+```bash
+# Setup the virtual environment
+python3 -m venv envname
+source envname/bin/activate
+
+pip install django
+pip install django-rest-framework
+pip install -r requirements.txt
+
+# Run tests
+py.test
+```
+
+
 Known problems with solutions
 =============================
 
@@ -264,4 +281,4 @@ class ChildSerializer(UniqueFieldsMixin, NestedUpdateMixin,
 
 Authors
 =======
-2014-2020, beda.software
+2014-2021, beda.software
